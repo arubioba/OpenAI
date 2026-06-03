@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "description": "Freelan HubSpot MCP Server deployed on Railway and connected to HubSpot through a Private App token.",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/rest.js",
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "tsx src/rest.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/rest.js"
   },
   "engines": {
     "node": ">=20.0.0"
