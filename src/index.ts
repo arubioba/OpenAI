@@ -55,13 +55,38 @@ async function hubspotRequest(path: string, options: RequestInit = {}): Promise<
   };
 }
 
+async function hubspotTokenInfoRequest(): Promise<HubSpotResult> {
+  const response = await fetch(`${HUBSPOT_BASE_URL}/oauth/v1/access-tokens/${encodeURIComponent(HUBSPOT_ACCESS_TOKEN || "")}`);
+  const text = await response.text();
+
+  let parsed: unknown;
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    parsed = { raw: text };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: parsed
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    data: parsed
+  };
+}
+
 async function getTokenInfo() {
-  return hubspotRequest("/oauth/v2/private-apps/get/access-token-info", {
-    method: "POST",
-    body: JSON.stringify({
-      tokenKey: HUBSPOT_ACCESS_TOKEN
-    })
-  });
+  return hubspotTokenInfoRequest();
+}
+
+async function getContactSample() {
+  return hubspotRequest("/crm/v3/objects/contacts?limit=1&properties=firstname,lastname,email,phone,company");
 }
 
 function asText(data: unknown) {
@@ -202,12 +227,21 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
+function isDiagnosticAuthorized(req: express.Request) {
+  return Boolean(DIAGNOSTIC_KEY) && req.query.key === DIAGNOSTIC_KEY;
+}
+
 app.get("/", (_req, res) => {
   res.json({
     status: "ok",
     service: "freelan-hubspot-mcp",
     repository: "https://github.com/arubioba/OpenAI",
-    endpoints: ["/health", "/mcp", "/hubspot/token-info?key=YOUR_DIAGNOSTIC_KEY"]
+    endpoints: [
+      "/health",
+      "/mcp",
+      "/hubspot/token-info?key=YOUR_DIAGNOSTIC_KEY",
+      "/hubspot/contact-sample?key=YOUR_DIAGNOSTIC_KEY"
+    ]
   });
 });
 
@@ -226,7 +260,7 @@ app.get("/hubspot/token-info", async (req, res) => {
     });
   }
 
-  if (req.query.key !== DIAGNOSTIC_KEY) {
+  if (!isDiagnosticAuthorized(req)) {
     return res.status(401).json({
       ok: false,
       error: "Unauthorized diagnostic request."
@@ -234,6 +268,25 @@ app.get("/hubspot/token-info", async (req, res) => {
   }
 
   const result = await getTokenInfo();
+  return res.status(result.ok ? 200 : result.status).json(result);
+});
+
+app.get("/hubspot/contact-sample", async (req, res) => {
+  if (!DIAGNOSTIC_KEY) {
+    return res.status(503).json({
+      ok: false,
+      error: "DIAGNOSTIC_KEY is not configured. Add it as a Railway variable before using this endpoint."
+    });
+  }
+
+  if (!isDiagnosticAuthorized(req)) {
+    return res.status(401).json({
+      ok: false,
+      error: "Unauthorized diagnostic request."
+    });
+  }
+
+  const result = await getContactSample();
   return res.status(result.ok ? 200 : result.status).json(result);
 });
 
