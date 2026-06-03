@@ -6,6 +6,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 
 const PORT = process.env.PORT || 3000;
 const HUBSPOT_ACCESS_TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
+const DIAGNOSTIC_KEY = process.env.DIAGNOSTIC_KEY;
 const HUBSPOT_BASE_URL = "https://api.hubapi.com";
 
 if (!HUBSPOT_ACCESS_TOKEN) {
@@ -54,6 +55,15 @@ async function hubspotRequest(path: string, options: RequestInit = {}): Promise<
   };
 }
 
+async function getTokenInfo() {
+  return hubspotRequest("/oauth/v2/private-apps/get/access-token-info", {
+    method: "POST",
+    body: JSON.stringify({
+      tokenKey: HUBSPOT_ACCESS_TOKEN
+    })
+  });
+}
+
 function asText(data: unknown) {
   return {
     content: [
@@ -76,13 +86,7 @@ function createMcpServer() {
     "Validate the HubSpot Private App token and return token metadata such as Hub ID, app ID, user ID and scopes.",
     {},
     async () => {
-      const result = await hubspotRequest("/oauth/v2/private-apps/get/access-token-info", {
-        method: "POST",
-        body: JSON.stringify({
-          tokenKey: HUBSPOT_ACCESS_TOKEN
-        })
-      });
-
+      const result = await getTokenInfo();
       return asText(result);
     }
   );
@@ -203,7 +207,7 @@ app.get("/", (_req, res) => {
     status: "ok",
     service: "freelan-hubspot-mcp",
     repository: "https://github.com/arubioba/OpenAI",
-    endpoints: ["/health", "/mcp"]
+    endpoints: ["/health", "/mcp", "/hubspot/token-info?key=YOUR_DIAGNOSTIC_KEY"]
   });
 });
 
@@ -212,6 +216,25 @@ app.get("/health", (_req, res) => {
     status: "ok",
     service: "freelan-hubspot-mcp"
   });
+});
+
+app.get("/hubspot/token-info", async (req, res) => {
+  if (!DIAGNOSTIC_KEY) {
+    return res.status(503).json({
+      ok: false,
+      error: "DIAGNOSTIC_KEY is not configured. Add it as a Railway variable before using this endpoint."
+    });
+  }
+
+  if (req.query.key !== DIAGNOSTIC_KEY) {
+    return res.status(401).json({
+      ok: false,
+      error: "Unauthorized diagnostic request."
+    });
+  }
+
+  const result = await getTokenInfo();
+  return res.status(result.ok ? 200 : result.status).json(result);
 });
 
 app.all("/mcp", async (req, res) => {
