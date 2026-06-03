@@ -19,7 +19,20 @@ type HubSpotResult = {
   status: number;
   data?: unknown;
   error?: unknown;
+  diagnostics?: unknown;
 };
+
+function getSafeTokenDiagnostics() {
+  const token = HUBSPOT_ACCESS_TOKEN || "";
+  return {
+    tokenPresent: Boolean(token),
+    tokenLength: token.length,
+    tokenPrefix: token.slice(0, 7),
+    startsWithPatNa: token.startsWith("pat-na"),
+    hasWhitespace: /\s/.test(token),
+    hasBearerPrefix: token.toLowerCase().startsWith("bearer ")
+  };
+}
 
 async function hubspotRequest(path: string, options: RequestInit = {}): Promise<HubSpotResult> {
   const response = await fetch(`${HUBSPOT_BASE_URL}${path}`, {
@@ -44,14 +57,16 @@ async function hubspotRequest(path: string, options: RequestInit = {}): Promise<
     return {
       ok: false,
       status: response.status,
-      error: parsed
+      error: parsed,
+      diagnostics: getSafeTokenDiagnostics()
     };
   }
 
   return {
     ok: true,
     status: response.status,
-    data: parsed
+    data: parsed,
+    diagnostics: getSafeTokenDiagnostics()
   };
 }
 
@@ -70,14 +85,16 @@ async function hubspotTokenInfoRequest(): Promise<HubSpotResult> {
     return {
       ok: false,
       status: response.status,
-      error: parsed
+      error: parsed,
+      diagnostics: getSafeTokenDiagnostics()
     };
   }
 
   return {
     ok: true,
     status: response.status,
-    data: parsed
+    data: parsed,
+    diagnostics: getSafeTokenDiagnostics()
   };
 }
 
@@ -240,7 +257,8 @@ app.get("/", (_req, res) => {
       "/health",
       "/mcp",
       "/hubspot/token-info?key=YOUR_DIAGNOSTIC_KEY",
-      "/hubspot/contact-sample?key=YOUR_DIAGNOSTIC_KEY"
+      "/hubspot/contact-sample?key=YOUR_DIAGNOSTIC_KEY",
+      "/hubspot/env-check?key=YOUR_DIAGNOSTIC_KEY"
     ]
   });
 });
@@ -249,6 +267,27 @@ app.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "freelan-hubspot-mcp"
+  });
+});
+
+app.get("/hubspot/env-check", (req, res) => {
+  if (!DIAGNOSTIC_KEY) {
+    return res.status(503).json({
+      ok: false,
+      error: "DIAGNOSTIC_KEY is not configured. Add it as a Railway variable before using this endpoint."
+    });
+  }
+
+  if (!isDiagnosticAuthorized(req)) {
+    return res.status(401).json({
+      ok: false,
+      error: "Unauthorized diagnostic request."
+    });
+  }
+
+  return res.json({
+    ok: true,
+    diagnostics: getSafeTokenDiagnostics()
   });
 });
 
